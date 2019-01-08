@@ -35,12 +35,17 @@ public:
             jassertfalse;
         }
 
+        if (sampleRate > 0)
+            sourceToUse->prepareToPlay (buffer.getNumSamples(), sampleRate);
+
         source.reset (sourceToUse);
     }
 
     // from AudioSource
-    void prepareToPlay (int samplesPerBlockExpected, double sampleRate) override
+    void prepareToPlay (int samplesPerBlockExpected, double sampleRateToUse) override
     {
+        sampleRate = sampleRateToUse;
+
         if (source)
         {
             if (auto* reader = source->getAudioFormatReader())
@@ -76,6 +81,7 @@ public:
         const auto numSamples = bufferToFill.numSamples;
 
         AudioSourceChannelInfo originalToFill { &buffer, 0, numSamples };
+        source->getNextAudioBlock (originalToFill);
 
         // Do the downmix here, or even better, aggregate your matrix, so you can select different methods on the fly
         const auto numInChannels = buffer.getNumChannels();
@@ -84,32 +90,30 @@ public:
         const auto inChannelFormat = (source->getAudioFormatReader()) ? source->getAudioFormatReader()->getChannelLayout() :
                                                                         AudioChannelSet::canonicalChannelSet (numInChannels);
 
-        auto& output = *bufferToFill.buffer;
-
         bufferToFill.clearActiveBufferRegion();
 
         for (int c = 0; c < numInChannels; ++c)
         {
             switch (inChannelFormat.getTypeOfChannel (c)) {
                 case AudioChannelSet::left:
-                    output.addFrom (0, bufferToFill.startSample, buffer, c, 0, numSamples, 0.7);
+                    bufferToFill.buffer->addFrom (0, bufferToFill.startSample, buffer, c, 0, numSamples, 0.7);
                     break;
                 case AudioChannelSet::right:
-                    output.addFrom (1, bufferToFill.startSample, buffer, c, 0, numSamples, 0.7);
+                    bufferToFill.buffer->addFrom (1, bufferToFill.startSample, buffer, c, 0, numSamples, 0.7);
                     break;
                 case AudioChannelSet::centre:
-                    output.addFrom (0, bufferToFill.startSample, buffer, c, 0, numSamples, 0.7);
-                    output.addFrom (1, bufferToFill.startSample, buffer, c, 0, numSamples, 0.7);
+                    bufferToFill.buffer->addFrom (0, bufferToFill.startSample, buffer, c, 0, numSamples, 0.7);
+                    bufferToFill.buffer->addFrom (1, bufferToFill.startSample, buffer, c, 0, numSamples, 0.7);
                     break;
                 case AudioChannelSet::LFE:
                 case AudioChannelSet::LFE2:
-                    output.addFrom (0, bufferToFill.startSample, buffer, c, 0, numSamples, 0.7);
-                    output.addFrom (1, bufferToFill.startSample, buffer, c, 0, numSamples, 0.7);
+                    bufferToFill.buffer->addFrom (0, bufferToFill.startSample, buffer, c, 0, numSamples, 0.7);
+                    bufferToFill.buffer->addFrom (1, bufferToFill.startSample, buffer, c, 0, numSamples, 0.7);
                     break;
                 default:
                     // assume surround for all others
-                    output.addFrom (0, bufferToFill.startSample, buffer, c, 0, numSamples, 0.4);
-                    output.addFrom (1, bufferToFill.startSample, buffer, c, 0, numSamples, -0.4);
+                    bufferToFill.buffer->addFrom (0, bufferToFill.startSample, buffer, c, 0, numSamples, 0.4);
+                    bufferToFill.buffer->addFrom (1, bufferToFill.startSample, buffer, c, 0, numSamples, -0.4);
                     break;
             }
         }
@@ -144,6 +148,8 @@ public:
     }
 
 private:
+    double sampleRate = 0;
+
     std::unique_ptr<AudioFormatReaderSource> source;
 
     AudioBuffer<float> buffer;
